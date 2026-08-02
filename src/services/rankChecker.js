@@ -1,48 +1,85 @@
 const { getDb } = require('../db');
 
+const SERPER_API_URL = 'https://google.serper.dev/search';
+
 /**
- * Generate a deterministic-ish mock rank for a keyword.
- * Uses a simple hash of the keyword text to seed a base rank,
- * then adds random noise so each call returns a slightly different value.
+ * Normalise a search-engine name to a Serper gl (country code) value.
+ * Default to 'us' when none given or when the old 'google' default is used.
  *
- * Most results fall in the 1–50 range (realistic for tracked keywords),
- * with occasional outliers up to 100.
- *
- * @param {string} keyword
  * @param {string} searchEngine
- * @returns {number} mock rank position (1-100)
+ * @returns {string} two-letter country code
  */
-function mockCheckRank(keyword, searchEngine) {
-  // Simple hash for seed
-  let hash = 0;
-  for (let i = 0; i < keyword.length; i++) {
-    hash = ((hash << 5) - hash) + keyword.charCodeAt(i);
-    hash |= 0; // Convert to 32bit integer
+function countryCode(searchEngine) {
+  if (!searchEngine || searchEngine === 'google') return 'us';
+  return searchEngine.toLowerCase();
+}
+
+/**
+ * Call the Serper API to get a keyword's rank for a specific domain.
+ *
+ * Requires SERPER_API_KEY env var.
+ * POSTs { q: <keyword>, gl: <countryCode> } to
+ * https://google.serper.dev/search, then scans the organic results
+ * array for the first result whose `link` contains the target domain.
+ *
+ * @param {string} keyword  - The search query
+ * @param {string} searchEngine - Search engine / country code
+ * @param {string} domain   - The target domain to find in organic results
+ * @returns {number|null} 1-indexed position, or null if domain not found
+ */
+async function serperCheckRank(keyword, searchEngine, domain) {
+  const apiKey = process.env.SERPER_API_KEY;
+  if (!apiKey) {
+    throw new Error('SERPER_API_KEY environment variable is not set');
   }
 
-  // Normalise seed to a base rank (1-50)
-  const baseRank = (Math.abs(hash) % 50) + 1;
+  const gl = countryCode(searchEngine);
 
-  // Add noise: ±15 positions, clamped to 1-100
-  const noise = Math.floor(Math.random() * 31) - 15; // -15 .. +15
-  return Math.max(1, Math.min(100, baseRank + noise));
+  const response = await fetch(SERPER_API_URL, {
+    method: 'POST',
+    headers: {
+      'X-API-KEY': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ q: keyword, gl }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(
+      `Serper API error: ${response.status} ${response.statusText}${text ? ' — ' + text : ''}`
+    );
+  }
+
+  const data = await response.json();
+  const organic = data.organic || [];
+
+  for (let i = 0; i < organic.length; i++) {
+    const result = organic[i];
+    if (result.link && result.link.includes(domain)) {
+      return i + 1; // 1-indexed position
+    }
+  }
+
+  return null; // Domain not found in top results
 }
 
 /**
  * Run a rank check for a single keyword, identified by its id.
  * Verifies project ownership via userId.
+ * Calls the Serper API to get real rank data.
  *
  * @param {number} keywordId
  * @param {number} projectId
  * @param {number} userId
  * @returns {object|null} the new rank_check row, or null if keyword not found
  */
-function checkKeyword(keywordId, projectId, userId) {
+async function checkKeyword(keywordId, projectId, userId) {
   const db = getDb();
 
-  // Look up keyword with ownership verification
+  // Look up keyword with ownership verification and the project domain
   const keyword = db.prepare(`
-    SELECT k.id, k.keyword, k.search_engine
+    SELECT k.id, k.keyword, k.search_engine, p.domain
     FROM keywords k
     JOIN projects p ON p.id = k.project_id
     WHERE k.id = ? AND k.project_id = ? AND p.user_id = ?
@@ -50,7 +87,7 @@ function checkKeyword(keywordId, projectId, userId) {
 
   if (!keyword) return null;
 
-  const position = mockCheckRank(keyword.keyword, keyword.search_engine);
+  const position = await serperCheckRank(keyword.keyword, keyword.search_engine, keyword.domain);
   const stmt = db.prepare(
     'INSERT INTO rank_checks (keyword_id, position, search_engine) VALUES (?, ?, ?)'
   );
@@ -68,17 +105,24 @@ function checkKeyword(keywordId, projectId, userId) {
 /**
  * Run a rank check for a single keyword without ownership verification
  * (used by the scheduler — system-level, not per-user).
+ * Calls the Serper API to get real rank data.
  *
  * @param {number} keywordId
  * @returns {object|null} the new rank_check row, or null if keyword not found
  */
-function checkKeywordById(keywordId) {
+async function checkKeywordById(keywordId) {
   const db = getDb();
 
-  const keyword = db.prepare('SELECT id, keyword, search_engine FROM keywords WHERE id = ?').get(keywordId);
+  const keyword = db.prepare(`
+    SELECT k.id, k.keyword, k.search_engine, p.domain
+    FROM keywords k
+    JOIN projects p ON p.id = k.project_id
+    WHERE k.id = ?
+  `).get(keywordId);
+
   if (!keyword) return null;
 
-  const position = mockCheckRank(keyword.keyword, keyword.search_engine);
+  const position = await serperCheckRank(keyword.keyword, keyword.search_engine, keyword.domain);
   const stmt = db.prepare(
     'INSERT INTO rank_checks (keyword_id, position, search_engine) VALUES (?, ?, ?)'
   );
@@ -99,7 +143,7 @@ function checkKeywordById(keywordId) {
  *
  * @returns {{ total: number, successes: number, failures: number, checks: Array }}
  */
-function checkAllKeywords() {
+async function checkAllKeywords() {
   const db = getDb();
   const keywords = db.prepare('SELECT id FROM keywords').all();
 
@@ -108,7 +152,7 @@ function checkAllKeywords() {
 
   for (const kw of keywords) {
     try {
-      const result = checkKeywordById(kw.id);
+      const result = await checkKeywordById(kw.id);
       if (result) {
         successes.push(result);
       } else {
@@ -128,4 +172,4 @@ function checkAllKeywords() {
   };
 }
 
-module.exports = { mockCheckRank, checkKeyword, checkKeywordById, checkAllKeywords };
+module.exports = { serperCheckRank, checkKeyword, checkKeywordById, checkAllKeywords };

@@ -62,11 +62,15 @@ router.post('/:id/rank-checks', (req, res) => {
 });
 
 // POST /api/projects/:projectId/keywords/:id/check-now
-// Trigger an immediate mock rank check for this keyword
-router.post('/:id/check-now', (req, res) => {
-  const rc = checkKeyword(req.params.id, req.params.projectId, req.session.userId);
-  if (!rc) return res.status(404).json({ error: 'Keyword not found.' });
-  res.status(201).json(rc);
+// Trigger an immediate Serper API rank check for this keyword
+router.post('/:id/check-now', async (req, res, next) => {
+  try {
+    const rc = await checkKeyword(req.params.id, req.params.projectId, req.session.userId);
+    if (!rc) return res.status(404).json({ error: 'Keyword not found.' });
+    res.status(201).json(rc);
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;

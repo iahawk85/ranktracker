@@ -85,7 +85,7 @@ function start(cronExpression) {
 
         for (const kw of keywords) {
           try {
-            const result = checkKeywordById(kw.id);
+            const result = await checkKeywordById(kw.id);
             if (result) {
               successes++;
             } else {
