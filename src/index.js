@@ -6,6 +6,7 @@ const { getDb } = require('./db');
 const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
 const keywordRoutes = require('./routes/keywords');
+const dashboardRoutes = require('./routes/dashboard');
 const { start: startScheduler } = require('./services/scheduler');
 
 const app = express();
@@ -35,6 +36,7 @@ app.use(session({
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/projects/:projectId/keywords', keywordRoutes);
+app.use('/api/projects/:projectId', dashboardRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
