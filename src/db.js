@@ -50,6 +50,21 @@ function initSchema() {
       search_engine   TEXT    NOT NULL DEFAULT 'google',
       FOREIGN KEY (keyword_id) REFERENCES keywords(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS alerts (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      keyword_id      INTEGER NOT NULL,
+      project_id      INTEGER NOT NULL,
+      previous_pos    INTEGER,
+      current_pos     INTEGER,
+      change_amount   INTEGER NOT NULL,
+      direction       TEXT    NOT NULL CHECK(direction IN ('up', 'down')),
+      message         TEXT    NOT NULL,
+      triggered_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+      acknowledged    INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (keyword_id) REFERENCES keywords(id) ON DELETE CASCADE,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
   `);
 }
 

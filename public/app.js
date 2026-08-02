@@ -29,6 +29,12 @@ const api = {
   deleteKeyword: (pid, kid) => api.request('DELETE',`/api/projects/${pid}/keywords/${kid}`),
   // Rank checks
   listRankChecks: (pid, kid) => api.request('GET', `/api/projects/${pid}/keywords/${kid}/rank-checks`),
+  // Dashboard
+  getDashboard:   (pid)     => api.request('GET',  `/api/projects/${pid}/dashboard`),
+  listAlerts:     (pid)     => api.request('GET',  `/api/projects/${pid}/dashboard/alerts`),
+  alertCount:     (pid)     => api.request('GET',  `/api/projects/${pid}/dashboard/alerts/count`),
+  checkAlerts:    (pid)     => api.request('POST', `/api/projects/${pid}/dashboard/check-alerts`),
+  acknowledgeAlert: (pid, aid) => api.request('POST', `/api/projects/${pid}/dashboard/alerts/${aid}/acknowledge`),
 };
 
 // ─── State ──────────────────────────────────────────────────
@@ -38,6 +44,8 @@ let state = {
   currentView: 'auth',
   currentProject: null,
   keywords: [],
+  dashboard: null,
+  alerts: [],
 };
 
 // ─── Helpers ────────────────────────────────────────────────
@@ -254,10 +262,16 @@ function bindProjectList() {
 
 async function openProject(id) {
   try {
-    const project = await api.getProject(id);
-    const keywords = await api.listKeywords(id);
+    const [project, keywords, dashboard, alerts] = await Promise.all([
+      api.getProject(id),
+      api.listKeywords(id),
+      api.getDashboard(id),
+      api.listAlerts(id),
+    ]);
     state.currentProject = project;
     state.keywords = keywords;
+    state.dashboard = dashboard;
+    state.alerts = alerts;
     render();
   } catch (err) {
     toast(err.message, 'error');
@@ -276,6 +290,9 @@ function renderProjectDetail() {
       <div class="project-detail-meta">${escapeHtml(p.domain)}</div>
     </div>
   </div>`;
+
+  // Dashboard section
+  html += renderDashboard(p.id);
 
   // Add keyword form
   html += `<form class="add-keyword-form" id="add-keyword-form">
@@ -313,11 +330,152 @@ function renderProjectDetail() {
   return html;
 }
 
+// ─── Dashboard ──────────────────────────────────────────────
+function renderDashboard(projectId) {
+  const d = state.dashboard;
+  if (!d) return '';
+
+  let html = `<div class="dashboard-section">
+    <div class="dashboard-header">
+      <h3>Dashboard</h3>
+      <div class="dashboard-actions">
+        <span class="alerts-badge" id="alerts-badge" style="display:${state.alerts.length > 0 ? 'inline-flex' : 'none'}">
+          ${state.alerts.length} alert${state.alerts.length !== 1 ? 's' : ''}
+        </span>
+        <button class="btn btn-sm" id="view-alerts-btn">View Alerts</button>
+        <button class="btn btn-sm" id="refresh-dashboard-btn">Refresh</button>
+      </div>
+    </div>`;
+
+  // Summary cards
+  html += `<div class="dashboard-summary">
+      <div class="dash-card">
+        <div class="dash-card-value ${d.averageRank !== null ? (d.averageRank <= 10 ? 'high' : d.averageRank <= 30 ? 'mid' : 'low') : 'na'}">
+          ${d.averageRank !== null ? d.averageRank : '—'}
+        </div>
+        <div class="dash-card-label">Avg Rank</div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-value">${d.trackedKeywords}</div>
+        <div class="dash-card-label">Tracked</div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-value trending-up">${d.trendingUp.length}</div>
+        <div class="dash-card-label">Trending Up</div>
+      </div>
+      <div class="dash-card">
+        <div class="dash-card-value trending-down">${d.trendingDown.length}</div>
+        <div class="dash-card-label">Trending Down</div>
+      </div>
+    </div>`;
+
+  // Biggest movers
+  if (d.biggestMovers && d.biggestMovers.length > 0) {
+    html += `<div class="dash-subsection">
+      <h4>Biggest Movers This Week</h4>
+      <div class="dash-movers-list">`;
+    for (const mover of d.biggestMovers) {
+      const cls = mover.change < 0 ? 'trending-up' : 'trending-down';
+      const arrow = mover.change < 0 ? '↑' : '↓';
+      html += `<div class="mover-item">
+        <span class="mover-name">${escapeHtml(mover.keyword)}</span>
+        <span class="mover-change ${cls}">${arrow} ${mover.abs_change} (${mover.first_pos} → ${mover.last_pos})</span>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function renderAlertsModal(projectId) {
+  const alerts = state.alerts;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  let bodyHtml = '';
+
+  if (alerts.length === 0) {
+    bodyHtml = `<div class="empty-state">No alerts. Trigger a rank check to detect changes.</div>`;
+  } else {
+    bodyHtml = `<div class="alerts-list">`;
+    for (const a of alerts) {
+      const cls = a.direction === 'up' ? 'trending-up' : 'trending-down';
+      const icon = a.direction === 'up' ? '↑' : '↓';
+      bodyHtml += `<div class="alert-item ${a.acknowledged ? 'acknowledged' : ''}">
+        <div class="alert-icon ${cls}">${icon}</div>
+        <div class="alert-body">
+          <div class="alert-message">${escapeHtml(a.message)}</div>
+          <div class="alert-time">${escapeHtml(a.triggered_at)}</div>
+        </div>
+        ${!a.acknowledged ? `<button class="btn btn-sm ack-alert-btn" data-id="${a.id}">Ack</button>` : '<span class="ack-badge">✓</span>'}
+      </div>`;
+    }
+    bodyHtml += `</div>`;
+  }
+
+  overlay.innerHTML = `<div class="modal">
+    <button class="close-btn" id="modal-close">✕</button>
+    <h3>Alerts</h3>
+    <div class="modal-sub">Keywords that moved more than 5 positions</div>
+    <div class="modal-actions" style="margin-bottom:16px">
+      <button class="btn btn-sm" id="check-alerts-now-btn">Check Now</button>
+    </div>
+    <div id="alerts-body">${bodyHtml}</div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('#modal-close').addEventListener('click', close);
+
+  // Check alerts now
+  const checkBtn = overlay.querySelector('#check-alerts-now-btn');
+  if (checkBtn) {
+    checkBtn.addEventListener('click', async () => {
+      checkBtn.disabled = true;
+      checkBtn.textContent = '...';
+      try {
+        await api.checkAlerts(projectId);
+        const [dashboard, alerts] = await Promise.all([
+          api.getDashboard(projectId),
+          api.listAlerts(projectId),
+        ]);
+        state.dashboard = dashboard;
+        state.alerts = alerts;
+        close();
+        render();
+        toast('Alerts checked');
+      } catch (err) {
+        toast(err.message, 'error');
+        checkBtn.disabled = false;
+        checkBtn.textContent = 'Check Now';
+      }
+    });
+  }
+
+  // Acknowledge buttons
+  for (const btn of overlay.querySelectorAll('.ack-alert-btn')) {
+    btn.addEventListener('click', async () => {
+      try {
+        await api.acknowledgeAlert(projectId, btn.dataset.id);
+        state.alerts = await api.listAlerts(projectId);
+        close();
+        render();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+  }
+}
+
 function bindProjectDetail() {
   const b = $('#back-link');
   if (b) b.addEventListener('click', () => {
     state.currentProject = null;
     state.keywords = [];
+    state.dashboard = null;
+    state.alerts = [];
     render();
   });
 
@@ -359,6 +517,37 @@ function bindProjectDetail() {
   for (const btn of $$('.rank-history-btn')) {
     btn.addEventListener('click', async () => {
       await showRankHistory(btn.dataset.pid, btn.dataset.kid);
+    });
+  }
+
+  // Dashboard: view alerts
+  const alertsBtn = $('#view-alerts-btn');
+  if (alertsBtn) {
+    alertsBtn.addEventListener('click', () => {
+      renderAlertsModal(state.currentProject.id);
+    });
+  }
+
+  // Dashboard: refresh
+  const refreshBtn = $('#refresh-dashboard-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '...';
+      try {
+        const [dashboard, alerts] = await Promise.all([
+          api.getDashboard(state.currentProject.id),
+          api.listAlerts(state.currentProject.id),
+        ]);
+        state.dashboard = dashboard;
+        state.alerts = alerts;
+        render();
+        toast('Dashboard refreshed');
+      } catch (err) {
+        toast(err.message, 'error');
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = 'Refresh';
+      }
     });
   }
 }
