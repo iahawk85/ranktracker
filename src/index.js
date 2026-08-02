@@ -6,6 +6,7 @@ const { getDb } = require('./db');
 const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
 const keywordRoutes = require('./routes/keywords');
+const { start: startScheduler } = require('./services/scheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -53,6 +54,7 @@ app.use((err, req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`Rank Tracker API running on http://localhost:${PORT}`);
+  startScheduler();
 });
 
 module.exports = app;
