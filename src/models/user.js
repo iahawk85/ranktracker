@@ -23,7 +23,7 @@ function verifyPassword(plaintext, hash) {
 
 function getUserById(id) {
   const db = getDb();
-  return db.prepare('SELECT id, email, tier, stripe_customer_id, stripe_subscription_id, subscription_status, created_at FROM users WHERE id = ?').get(id);
+  return db.prepare('SELECT id, email, tier, subscription_status, created_at FROM users WHERE id = ?').get(id);
 }
 
 module.exports = { createUser, findUserByEmail, verifyPassword, getUserById };

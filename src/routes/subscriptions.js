@@ -4,15 +4,12 @@ const { getDb } = require('../db');
 
 const router = Router();
 
-// All routes require auth
-router.use(requireAuth);
-
 /**
  * POST /api/subscriptions/create-checkout
  * Creates a Stripe Checkout Session for the Pro plan ($19/mo).
  * Returns the session URL for redirect.
  */
-router.post('/create-checkout', async (req, res) => {
+router.post('/create-checkout', requireAuth, async (req, res) => {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
     return res.status(500).json({ error: 'Stripe not configured. Set STRIPE_SECRET_KEY.' });
@@ -71,7 +68,7 @@ router.post('/create-checkout', async (req, res) => {
  * GET /api/subscriptions/portal
  * Creates a Stripe Customer Portal session for managing the subscription.
  */
-router.get('/portal', async (req, res) => {
+router.get('/portal', requireAuth, async (req, res) => {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
     return res.status(500).json({ error: 'Stripe not configured. Set STRIPE_SECRET_KEY.' });

@@ -336,6 +336,7 @@ function renderProjectDetail() {
         <div class="keyword-right">
           <div class="keyword-rank ${rc}">${latest !== null && latest !== undefined ? latest : '—'}</div>
           <div class="keyword-actions">
+            <button class="btn btn-sm btn-icon check-now-btn" data-pid="${p.id}" data-kid="${kw.id}">Check</button>
             <button class="btn btn-sm btn-icon rank-history-btn" data-pid="${p.id}" data-kid="${kw.id}">History</button>
             <button class="btn btn-sm btn-icon btn-danger delete-keyword-btn" data-pid="${p.id}" data-kid="${kw.id}">✕</button>
           </div>
@@ -539,6 +540,30 @@ function bindProjectDetail() {
     });
   }
 
+  // Check now — trigger an immediate rank check
+  for (const btn of $$('.check-now-btn')) {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        await api.request('POST', `/api/projects/${btn.dataset.pid}/keywords/${btn.dataset.kid}/check-now`);
+        state.keywords = await api.listKeywords(state.currentProject.id);
+        const [dashboard, alerts] = await Promise.all([
+          api.getDashboard(state.currentProject.id),
+          api.listAlerts(state.currentProject.id),
+        ]);
+        state.dashboard = dashboard;
+        state.alerts = alerts;
+        render();
+        toast('Rank check complete');
+      } catch (err) {
+        toast(err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Check';
+      }
+    });
+  }
+
   // Dashboard: view alerts
   const alertsBtn = $('#view-alerts-btn');
   if (alertsBtn) {
@@ -712,9 +737,10 @@ function bindHeader() {
 
 // ─── Main ────────────────────────────────────────────────────
 async function init() {
-  render();
+  const app = $('#app');
+  app.innerHTML = '<div class="loading">Loading...</div>';
   const loggedIn = await tryAutoLogin();
-  if (loggedIn) render();
+  render();
 }
 
 // Re-bind after every render via MutationObserver

@@ -16,7 +16,9 @@ const PORT = process.env.PORT || 3000;
 // Initialize database on startup
 getDb();
 
-// Middleware
+// Middleware — Stripe webhook needs raw body (before JSON parser)
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+app.use('/api/subscriptions/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
 // Serve static frontend
@@ -39,6 +41,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/projects/:projectId/keywords', keywordRoutes);
 app.use('/api/projects/:projectId', dashboardRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+// Stripe webhook lives under /api/stripe (no auth, raw body parsing)
 app.use('/api/stripe', subscriptionRoutes);
 
 // Health check
