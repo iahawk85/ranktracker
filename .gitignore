@@ -1,4 +1,4 @@
 node_modules/
 ranktracker.db
-.env*.db-shm
+*.db-shm
 *.db-wal

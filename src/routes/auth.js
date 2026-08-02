@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { createUser, findUserByEmail, verifyPassword } = require('../models/user');
+const { createUser, findUserByEmail, verifyPassword, getUserById } = require('../models/user');
 
 const router = Router();
 
@@ -53,12 +53,9 @@ router.get('/me', (req, res) => {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ error: 'Not authenticated.' });
   }
-  const user = findUserByEmail(null); // We need to look up by id instead
-  const { getDb } = require('../db');
-  const db = getDb();
-  const u = db.prepare('SELECT id, email, created_at FROM users WHERE id = ?').get(req.session.userId);
-  if (!u) return res.status(401).json({ error: 'User not found.' });
-  res.json(u);
+  const user = getUserById(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'User not found.' });
+  res.json(user);
 });
 
 module.exports = router;

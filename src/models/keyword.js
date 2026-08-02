@@ -27,11 +27,33 @@ function getKeyword(id, projectId, userId) {
   `).get(id, projectId, userId);
 }
 
+function getKeywordCount(userId) {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT COUNT(*) AS cnt FROM keywords k
+    JOIN projects p ON p.id = k.project_id
+    WHERE p.user_id = ?
+  `).get(userId);
+  return row ? row.cnt : 0;
+}
+
 function createKeyword(projectId, userId, keyword, searchEngine) {
   const db = getDb();
   // Verify project ownership
-  const project = db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(projectId, userId);
+  const project = db.prepare('SELECT id, user_id FROM projects WHERE id = ? AND user_id = ?').get(projectId, userId);
   if (!project) return null;
+  // Check tier limits
+  const user = db.prepare('SELECT tier FROM users WHERE id = ?').get(userId);
+  const FREE_LIMIT = 10;
+  if (user && user.tier === 'free') {
+    const count = getKeywordCount(userId);
+    if (count >= FREE_LIMIT) {
+      const err = new Error(`Free tier limited to ${FREE_LIMIT} keywords. Upgrade to Pro for unlimited keywords.`);
+      err.statusCode = 403;
+      err.limitExceeded = true;
+      throw err;
+    }
+  }
   const stmt = db.prepare('INSERT INTO keywords (project_id, keyword, search_engine) VALUES (?, ?, ?)');
   const result = stmt.run(projectId, keyword, searchEngine || 'google');
   return { id: result.lastInsertRowid, project_id: projectId, keyword, search_engine: searchEngine || 'google' };
@@ -72,4 +94,4 @@ function createRankCheck(keywordId, projectId, userId, position, searchEngine) {
   return { id: result.lastInsertRowid, keyword_id: keywordId, position, checked_at: new Date().toISOString(), search_engine: searchEngine || 'google' };
 }
 
-module.exports = { listKeywords, getKeyword, createKeyword, deleteKeyword, listRankChecks, createRankCheck };
+module.exports = { listKeywords, getKeyword, getKeywordCount, createKeyword, deleteKeyword, listRankChecks, createRankCheck };

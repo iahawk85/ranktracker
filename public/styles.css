@@ -659,3 +659,42 @@ input:focus {
   font-size: 14px;
   font-weight: 700;
 }
+
+/* ── Tier Badge ── */
+.tier-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid;
+}
+.tier-badge.tier-free {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+.tier-badge.tier-pro {
+  color: #eab308;
+  border-color: #eab308;
+}
+
+/* ── Keyword Usage ── */
+.keyword-usage {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.keyword-usage .usage-warning {
+  color: #eab308;
+  font-weight: 600;
+}
+.keyword-usage .btn {
+  margin-left: auto;
+}

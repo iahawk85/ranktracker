@@ -18,10 +18,15 @@ function getDb() {
 function initSchema() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      email       TEXT    NOT NULL UNIQUE,
-      password    TEXT    NOT NULL,
-      created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      email                 TEXT    NOT NULL UNIQUE,
+      password              TEXT    NOT NULL,
+      tier                  TEXT    NOT NULL DEFAULT 'free',
+      stripe_customer_id    TEXT,
+      stripe_subscription_id TEXT,
+      subscription_status   TEXT,
+      last_batch_check      TEXT,
+      created_at            TEXT    NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS projects (
@@ -66,6 +71,17 @@ function initSchema() {
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
   `);
+// Migrations for columns added after initial schema
+  const migrations = [
+    "ALTER TABLE users ADD COLUMN tier TEXT NOT NULL DEFAULT 'free'",
+    "ALTER TABLE users ADD COLUMN stripe_customer_id TEXT",
+    "ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT",
+    "ALTER TABLE users ADD COLUMN subscription_status TEXT",
+    "ALTER TABLE users ADD COLUMN last_batch_check TEXT",
+  ];
+  for (const sql of migrations) {
+    try { db.exec(sql); } catch (e) { /* column already exists */ }
+  }
 }
 
 module.exports = { getDb };

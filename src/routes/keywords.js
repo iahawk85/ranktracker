@@ -19,9 +19,16 @@ router.post('/', (req, res) => {
   if (!keyword) {
     return res.status(400).json({ error: 'Keyword is required.' });
   }
-  const kw = createKeyword(req.params.projectId, req.session.userId, keyword, search_engine);
-  if (!kw) return res.status(404).json({ error: 'Project not found.' });
-  res.status(201).json(kw);
+  try {
+    const kw = createKeyword(req.params.projectId, req.session.userId, keyword, search_engine);
+    if (!kw) return res.status(404).json({ error: 'Project not found.' });
+    res.status(201).json(kw);
+  } catch (err) {
+    if (err.limitExceeded) {
+      return res.status(403).json({ error: err.message });
+    }
+    throw err;
+  }
 });
 
 // DELETE /api/projects/:projectId/keywords/:id

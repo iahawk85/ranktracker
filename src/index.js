@@ -7,6 +7,7 @@ const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
 const keywordRoutes = require('./routes/keywords');
 const dashboardRoutes = require('./routes/dashboard');
+const subscriptionRoutes = require('./routes/subscriptions');
 const { start: startScheduler } = require('./services/scheduler');
 
 const app = express();
@@ -37,6 +38,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/projects/:projectId/keywords', keywordRoutes);
 app.use('/api/projects/:projectId', dashboardRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/stripe', subscriptionRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
