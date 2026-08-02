@@ -3,8 +3,16 @@ const { getDb } = require('../db');
 function listKeywords(projectId, userId) {
   const db = getDb();
   return db.prepare(`
-    SELECT k.* FROM keywords k
+    SELECT k.*, rc.position AS last_rank
+    FROM keywords k
     JOIN projects p ON p.id = k.project_id
+    LEFT JOIN (
+      SELECT keyword_id, position
+      FROM rank_checks
+      WHERE id IN (
+        SELECT MAX(id) FROM rank_checks GROUP BY keyword_id
+      )
+    ) rc ON rc.keyword_id = k.id
     WHERE k.project_id = ? AND p.user_id = ?
     ORDER BY k.created_at DESC
   `).all(projectId, userId);
