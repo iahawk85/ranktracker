@@ -91,9 +91,11 @@ function render() {
 }
 
 function renderHeader() {
+  const tierLabel = state.user.tier === 'pro' ? 'Pro' : 'Free';
   return `<div class="header">
     <h1>Rank Tracker</h1>
     <div class="header-right">
+      <span class="tier-badge tier-${state.user.tier}">${tierLabel}</span>
       <span>${escapeHtml(state.user.email)}</span>
       <button class="btn btn-sm" id="logout-btn">Log out</button>
     </div>
@@ -293,6 +295,23 @@ function renderProjectDetail() {
 
   // Dashboard section
   html += renderDashboard(p.id);
+
+  // Keyword usage info
+  const isFree = state.user.tier === 'free';
+  const keywordCount = state.keywords.length;
+  const FREE_LIMIT = 10;
+  if (isFree) {
+    html += `<div class="keyword-usage">
+      <span>Keywords: ${keywordCount} / ${FREE_LIMIT}</span>
+      ${keywordCount >= FREE_LIMIT ? '<span class="usage-warning">Limit reached — upgrade for more</span>' : ''}
+      <button class="btn btn-sm btn-primary" id="upgrade-btn">Upgrade to Pro — $19/mo</button>
+    </div>`;
+  } else {
+    html += `<div class="keyword-usage">
+      <span>Keywords: ${keywordCount} (unlimited)</span>
+      <button class="btn btn-sm" id="manage-sub-btn">Manage Subscription</button>
+    </div>`;
+  }
 
   // Add keyword form
   html += `<form class="add-keyword-form" id="add-keyword-form">
@@ -547,6 +566,44 @@ function bindProjectDetail() {
         toast(err.message, 'error');
         refreshBtn.disabled = false;
         refreshBtn.textContent = 'Refresh';
+      }
+    });
+  }
+
+  // Upgrade to Pro
+  const upgradeBtn = $('#upgrade-btn');
+  if (upgradeBtn) {
+    upgradeBtn.addEventListener('click', async () => {
+      upgradeBtn.disabled = true;
+      upgradeBtn.textContent = '...';
+      try {
+        const data = await api.request('POST', '/api/subscriptions/create-checkout');
+        if (data.url) {
+          window.location.href = data.url;
+        }
+      } catch (err) {
+        toast(err.message, 'error');
+        upgradeBtn.disabled = false;
+        upgradeBtn.textContent = 'Upgrade to Pro — $19/mo';
+      }
+    });
+  }
+
+  // Manage subscription
+  const manageBtn = $('#manage-sub-btn');
+  if (manageBtn) {
+    manageBtn.addEventListener('click', async () => {
+      manageBtn.disabled = true;
+      manageBtn.textContent = '...';
+      try {
+        const data = await api.request('GET', '/api/subscriptions/portal');
+        if (data.url) {
+          window.location.href = data.url;
+        }
+      } catch (err) {
+        toast(err.message, 'error');
+        manageBtn.disabled = false;
+        manageBtn.textContent = 'Manage Subscription';
       }
     });
   }

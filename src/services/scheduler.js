@@ -1,14 +1,48 @@
 const cron = require('node-cron');
-const { checkAllKeywords } = require('./rankChecker');
+const { checkKeywordById } = require('./rankChecker');
 const { getDb } = require('../db');
-const { checkAndStoreAlerts } = require('../models/alerts');
 
 const DEFAULT_SCHEDULE = '0 0 * * *'; // Daily at midnight
 
 let task = null;
 
 /**
+ * Get the last batch-check timestamp for a user.
+ * @param {object} db - database connection
+ * @param {number} userId
+ * @returns {string|null} ISO timestamp or null if never checked
+ */
+function getLastBatchCheck(db, userId) {
+  const row = db.prepare('SELECT last_batch_check FROM users WHERE id = ?').get(userId);
+  return row ? row.last_batch_check : null;
+}
+
+/**
+ * Update the batch-check timestamp for a user.
+ * @param {object} db
+ * @param {number} userId
+ */
+function touchLastBatchCheck(db, userId) {
+  db.prepare("UPDATE users SET last_batch_check = datetime('now') WHERE id = ?").run(userId);
+}
+
+/**
+ * Determine if a free-tier user is due for a weekly check.
+ * Free users get checked every 7 days.
+ * @param {object} db
+ * @param {number} userId
+ * @returns {boolean}
+ */
+function isFreeUserDue(db, userId) {
+  const last = getLastBatchCheck(db, userId);
+  if (!last) return true; // never checked
+  const hoursSince = (Date.now() - new Date(last + 'Z').getTime()) / (1000 * 60 * 60);
+  return hoursSince >= 168; // 7 days
+}
+
+/**
  * Start the daily rank-check scheduler.
+ * Pro users get checked daily. Free users get checked weekly.
  * Optionally pass a cron expression (default: daily at midnight).
  *
  * @param {string} [cronExpression='0 0 * * *']
@@ -25,18 +59,66 @@ function start(cronExpression) {
   task = cron.schedule(schedule, async () => {
     console.log(`[scheduler] Starting daily rank check at ${new Date().toISOString()}`);
     try {
-      const result = checkAllKeywords();
+      const db = getDb();
+      const users = db.prepare('SELECT id, tier FROM users').all();
+      let totalKeywords = 0;
+      let totalSuccesses = 0;
+      let totalFailures = 0;
+
+      for (const user of users) {
+        // Free users: only check if at least 7 days since last batch check
+        if (user.tier === 'free') {
+          if (!isFreeUserDue(db, user.id)) {
+            continue; // skip this user this run
+          }
+        }
+
+        // Find all keywords belonging to this user's projects
+        const keywords = db.prepare(`
+          SELECT k.id FROM keywords k
+          JOIN projects p ON p.id = k.project_id
+          WHERE p.user_id = ?
+        `).all(user.id);
+
+        let successes = 0;
+        let failures = 0;
+
+        for (const kw of keywords) {
+          try {
+            const result = checkKeywordById(kw.id);
+            if (result) {
+              successes++;
+            } else {
+              failures++;
+            }
+          } catch (err) {
+            console.error(`[scheduler] Rank check failed for keyword ${kw.id}:`, err.message);
+            failures++;
+          }
+        }
+
+        totalKeywords += keywords.length;
+        totalSuccesses += successes;
+        totalFailures += failures;
+
+        // Update last_batch_check for free users that were checked
+        if (keywords.length > 0) {
+          touchLastBatchCheck(db, user.id);
+        }
+
+        console.log(
+          `[scheduler] User ${user.id} (${user.tier}): ${successes}/${keywords.length} checked, ${failures} failures`
+        );
+      }
+
       console.log(
-        `[scheduler] Completed: ${result.successes}/${result.total} keywords checked, ${result.failures} failures`
+        `[scheduler] Completed: ${totalSuccesses}/${totalKeywords} keywords checked, ${totalFailures} failures`
       );
 
-      // After rank checks, run alert detection per project
-      const db = getDb();
+      // After rank checks, run alert detection per project (all projects)
       const projects = db.prepare('SELECT id FROM projects').all();
       let totalAlerts = 0;
       for (const p of projects) {
-        // Use the project's own user_id via the first available keyword's user
-        // For system-level alert checking we bypass per-user checks
         db.prepare(`
           INSERT OR IGNORE INTO alerts (keyword_id, project_id, previous_pos, current_pos, change_amount, direction, message, triggered_at)
           SELECT

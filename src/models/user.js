@@ -6,9 +6,9 @@ function createUser(email, password) {
   const bcrypt = require('bcrypt');
   const hash = bcrypt.hashSync(password, SALT_ROUNDS);
   const db = getDb();
-  const stmt = db.prepare('INSERT INTO users (email, password) VALUES (?, ?)');
-  const result = stmt.run(email, hash);
-  return { id: result.lastInsertRowid, email };
+  const stmt = db.prepare('INSERT INTO users (email, password, tier) VALUES (?, ?, ?)');
+  const result = stmt.run(email, hash, 'free');
+  return { id: result.lastInsertRowid, email, tier: 'free' };
 }
 
 function findUserByEmail(email) {
@@ -21,4 +21,9 @@ function verifyPassword(plaintext, hash) {
   return bcrypt.compareSync(plaintext, hash);
 }
 
-module.exports = { createUser, findUserByEmail, verifyPassword };
+function getUserById(id) {
+  const db = getDb();
+  return db.prepare('SELECT id, email, tier, stripe_customer_id, stripe_subscription_id, subscription_status, created_at FROM users WHERE id = ?').get(id);
+}
+
+module.exports = { createUser, findUserByEmail, verifyPassword, getUserById };
