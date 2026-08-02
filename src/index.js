@@ -16,6 +16,9 @@ getDb();
 // Middleware
 app.use(express.json());
 
+// Serve static frontend
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'ranktracker-dev-secret-change-in-production',
   resave: false,
